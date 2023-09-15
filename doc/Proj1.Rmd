@@ -1,0 +1,384 @@
+---
+title: "Project_1"
+author: "Jason Cho"
+UNI: "yc4076"
+output: html_document
+date: "2023-09-09"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+HappyDB is a corpus of 100,000 crowd-sourced happy moments via Amazon's Mechanical Turk. You can read more about it on https://arxiv.org/abs/1801.07746
+
+In this R notebook, we process the raw textual data for our data analysis.
+
+### Load all the required libraries
+
+```{r load libraries, warning=FALSE, message=FALSE}
+library(tm)
+library(tidytext)
+library(tidyverse)
+library(DT)
+library(dplyr)
+library(ggplot2)
+library(wordcloud2)
+```
+
+### Load the data to be cleaned and processed
+
+```{r read data, warning=FALSE, message=FALSE}
+urlfile<-'https://raw.githubusercontent.com/rit-public/HappyDB/master/happydb/data/cleaned_hm.csv'
+hm_data <- read_csv(urlfile)
+#head(hm_data, 10)
+dim(hm_data)
+```
+
+### Step 2 - Preliminary cleaning of text
+
+We clean the text by converting all the letters to the lower case, and removing punctuation, numbers, empty words and extra white space.
+
+```{r text processing in tm}
+corpus <- VCorpus(VectorSource(hm_data$cleaned_hm))%>%
+  tm_map(content_transformer(tolower))%>%
+  tm_map(removePunctuation)%>%
+  tm_map(removeNumbers)%>%
+  tm_map(removeWords, character(0))%>%
+  tm_map(stripWhitespace)
+```
+
+### Step 3 - Stemming words and converting tm object to tidy object
+
+Stemming reduces a word to its word *stem*. We stem the words here and then convert the "tm" object to a "tidy" object for much faster processing.
+
+```{r stemming}
+stemmed <- tm_map(corpus, stemDocument) %>%
+  tidy() %>%
+  select(text)
+```
+
+### Step 4 - Creating tidy format of the dictionary to be used for completing stems
+
+We also need a dictionary to look up the words corresponding to the stems.
+
+```{r tidy dictionary}
+dict <- tidy(corpus) %>%
+  select(text) %>%
+  unnest_tokens(dictionary, text)
+```
+
+### Step 5 - Removing stopwords that don't hold any significant information for our data set
+
+We remove stopwords provided by the "tidytext" package and also add custom stopwords in context of our data.
+
+```{r stopwords}
+data("stop_words")
+
+word <- c("happy","ago","yesterday","lot","today","months","month",
+                 "happier","happiest","last","week","past","and", 
+                 "but","with","in","on","oh","wow","ah")
+
+stop_words <- stop_words %>%
+  bind_rows(mutate(tibble(word), lexicon = "updated"))
+```
+
+### Step 6 - Combining stems and dictionary into the same tibble
+
+Here we combine the stems and the dictionary into the same "tidy" object.
+
+```{r, tidy stems with dictionary 2, warning=FALSE}
+completed <- stemmed %>%
+  mutate(id = row_number()) %>%
+  unnest_tokens(stems, text) %>%
+  bind_cols(dict) %>%
+  anti_join(stop_words, by = c("dictionary" = "word"))
+```
+
+### Step 7 - Stem completion
+
+Lastly, we complete the stems by picking the corresponding word with the highest frequency.
+
+```{r stem completion, warning=FALSE, message=FALSE}
+completed <- completed %>%
+  group_by(stems) %>%
+  count(dictionary) %>%
+  mutate(word = dictionary[which.max(n)]) %>%
+  ungroup() %>%
+  select(stems, word) %>%
+  distinct() %>%
+  right_join(completed) %>%
+  select(-stems)
+```
+
+### Step 8 - Pasting stem completed individual words into their respective happy moments
+
+We want our processed words to resemble the structure of the original happy moments. So we paste the words together to form happy moments.
+
+```{r reverse unnest}
+completed <- completed %>%
+  group_by(id) %>%
+  summarise(text = str_c(word, collapse = " ")) %>%
+  ungroup()
+```
+
+### Step 9 - Keeping a track of the happy moments with their own ID
+
+```{r cleaned hm_data, warning=FALSE, message=FALSE}
+hm_data <- hm_data %>%
+  mutate(id = row_number()) %>%
+  inner_join(completed)
+
+head(hm_data)
+```
+
+```{r export data,echo=FALSE}
+write_csv(hm_data, "../output/processed_moments.csv")  
+```
+
+
+```{r, message=FALSE,echo=FALSE}
+# Step 1 - Load the processed text data along with demographic information on contributors
+
+# We use the processed data for our analysis and combine it with the demographic information available.
+hm_data <- read_csv("../output/processed_moments.csv")
+
+#head(hm_data)
+```
+
+I am combining the necessary data I will need for this data story.
+The data that I will be using will be cleaned_hm.csv and demographic.csv.
+I have merged the two, subsetting it for convenience, then limited in age value.
+
+```{r, message=FALSE,echo=FALSE}
+
+urlfile<-'https://raw.githubusercontent.com/rit-public/HappyDB/master/happydb/data/demographic.csv'
+demo_data <- read_csv(urlfile)
+
+# I will merge hm_data & demo_data and name it as 'combined_data' + remove rows with NA value
+combined_data <- merge(hm_data,demo_data, by="wid", all.x=TRUE, all.y=TRUE)
+combined_data <- na.omit(combined_data)
+
+# Subset the desired columns and name it as 'subset_data'
+subset_data <- combined_data[, c("wid", "age", "gender", "original_hm", "text", "modified", "ground_truth_category", "predicted_category", "num_sentence")]
+
+# I discovered that there were rows with the age recorded as 233. I am filtering out any anomalous age values. I am setting the maximum range as 116 since the oldest known living person on Earth is 116 years old.
+# I also found out some people with the age of 3 aligned with sentences such as "last night I went to dance bar with my lover." I am setting the minimum range as 5 since it is the earliest age a child can write.
+subset_data <- subset(subset_data, age >= 5 & age <= 116)
+
+```
+
+```{r tidy stems with dictionary}
+head(subset_data)
+```
+
+Figure 1
+
+First, I am trying to see the frequencies of moment by counting the number of moments reported across different ages.
+This line graph shows the overall amount of answers reported by different ages. 
+
+```{r}
+
+# Count the number of responses for each age
+age_counts <- table(subset_data$age)
+age_df <- as.data.frame(age_counts)
+colnames(age_df) <- c('Age', 'Count')
+
+# Convert Age to numeric for plotting
+age_df$Age <- as.numeric(as.character(age_df$Age))
+
+# Plotting the number of responses across ages
+ggplot(age_df, aes(x=Age, y=Count)) +
+  geom_line(color='black') +
+  theme_minimal() +
+  labs(title='Number of Responses Across Ages',
+       x='Age',
+       y='Number of Responses') +
+  theme(axis.text.x = element_text(angle=45, hjust=1))
+
+# -> The line graph clearly shows the number of reported moments are bigger from the younger group of people compared to the older groups. Since this does not tell much about the reason behind the difference in age, I will be finding details by analyzing the categories of the responses.
+```
+
+Figure 2
+
+From Figure 1, although I could generally look at the difference in the number of responses according to ages, it is impossible to check which category each responses come from.
+To delve into the specific categories of the answers deeper and closely compare between age groups, I am dividing the age group into five different groups.
+Ages under 14 are named as "children," 15 to 24 as "youth," 25 to 44 as "younger adults," "45 to 65" as "older adults," and "seniors" from 65. The grouping is inspired from the Canadian government's departmental standard of life cycle groupings. (https://www.statcan.gc.ca/en/concepts/definitions/age2) I have modified the Adults range, which was supposed to be 25-65, as younger and older adults since it was too big as a single group.
+
+```{r}
+# Add a new column for age groups
+subset_data$age_group <- cut(subset_data$age, 
+                               breaks = c(0, 14, 24, 44, 65, Inf), 
+                               labels = c("children", "youth", "younger adults", "older adults", "seniors"), 
+                               right = TRUE, include.lowest = TRUE)
+
+# Since the minimum age of the data is 18, we will not be getting any data for 'children' group
+min(unique(subset_data$age))
+
+# Plotting the distribution of moments across age groups
+ggplot(subset_data, aes(x=age_group, fill=ground_truth_category)) +
+  geom_bar(position='dodge') +
+  theme_minimal() +
+  labs(title='Distribution of Moments Across Age Groups',
+       x='Age Group',
+       y='Count') +
+  theme(axis.text.x = element_text(angle=45, hjust=1),
+        legend.position='top',
+        legend.title=element_blank())
+
+# -> Following bar plot specifies that the most responses were attained from younger adults. Surprisingly, only the youths are most frequently feeling happiness from their achievements, while the other groups are most influenced by affection.
+```
+
+```{r}
+# Add a new column for age groups
+subset_data$age_group <- cut(subset_data$age, 
+                               breaks = c(0, 10, 20, 30, 40, 50, Inf), 
+                               labels = c("0-9", "10-19", "20-29", "30-39", "40-49", "50 +"), 
+                               right = TRUE, include.lowest = TRUE)
+
+# Since the minimum age of the data is 18, we will not be getting any data for 'children' group
+min(unique(subset_data$age))
+
+# Plotting the distribution of moments across age groups
+ggplot(subset_data, aes(x=age_group, fill=ground_truth_category)) +
+  geom_bar(position='dodge') +
+  theme_minimal() +
+  labs(title='Distribution of Moments Across Age Groups',
+       x='Age Group',
+       y='Count') +
+  theme(axis.text.x = element_text(angle=45, hjust=1),
+        legend.position='top',
+        legend.title=element_blank())
+
+# -> Following bar plot specifies that the most responses were attained from younger adults. Surprisingly, only the youths are most frequently feeling happiness from their achievements, while the other groups are most influenced by affection.
+```
+
+Figure 3
+
+To see the trend of the proportions of each categories, I am creating an extra bar plot.
+
+```{r}
+
+# Plotting the distribution of moments across age groups as percentages
+ggplot(subset_data, aes(x=age_group, fill=ground_truth_category)) +
+  geom_bar(position='fill') + 
+  scale_y_continuous(labels=scales::percent_format(scale=1)) +
+  theme_minimal() +
+  labs(title='Percentage Distribution of Moments Across Age Groups',
+       x='Age Group',
+       y='Percentage') +
+  theme(axis.text.x = element_text(angle=45, hjust=1),
+        legend.position='top',
+        legend.title=element_blank())
+
+# -> This bar plot shows the change of trend regarding each categories. It is noticeable that proportion of affection tends to increase when deciding their happiness, while bonding gradually decreases as the age groups get older. This may explain that aspects like active lifestyles, social interactions, and new experiences decide younger age groups' happiness, while older age groups' happiness is affected by profound values such as affection.
+
+```
+
+
+```{r}
+## 위에 그래프 라인으로 딴거
+
+# Calculate the percentages for each category within each age group
+subset_data_percent <- subset_data %>%
+  group_by(age_group, ground_truth_category) %>%
+  summarise(count = n()) %>%
+  mutate(percentage = count / sum(count))
+
+# Plot the data using geom_line
+ggplot(subset_data_percent, aes(x=age_group, y=percentage, color=ground_truth_category, group=ground_truth_category)) +
+  geom_line(size=1) + 
+  scale_y_continuous(labels=scales::percent_format(scale=1)) +
+  theme_minimal() +
+  labs(title='Percentage Distribution of Moments Across Age Groups',
+       x='Age Group',
+       y='Percentage') +
+  theme(axis.text.x = element_text(angle=45, hjust=1),
+        legend.position='top',
+        legend.title=element_blank())
+
+```
+
+
+```{r, echo=FALSE}
+# Calculating the length of the response
+
+subset_data$length_response <- nchar(as.character(subset_data$original_hm))
+
+# Compute the average length of responses for each age group
+avg_length_by_age <- subset_data %>%
+  group_by(age_group) %>%
+  summarise(avg_length = mean(length_response))
+
+# Plot the average length of responses across age groups
+ggplot(avg_length_by_age, aes(x=age_group, y=avg_length)) +
+  geom_col(fill="skyblue") +
+  theme_minimal() +
+  labs(title='Average Length of Responses Across Age Groups',
+       x='Age Group',
+       y='Average Length') +
+  theme(axis.text.x = element_text(angle=45, hjust=1))
+
+
+```
+
+```{r}
+
+# Scatterplot of the length of responses across all ages
+ggplot(subset_data, aes(x=age, y=length_response)) +
+  geom_point(alpha=0.2, color="blue") +
+  theme_minimal() +
+  labs(title='Length of Responses Across All Ages',
+       x='Age',
+       y='Length of Response') +
+  theme(axis.text.x = element_text(angle=45, hjust=1))
+
+```
+```{r}
+
+```
+
+```{r}
+
+# Wordcloud for each age group
+
+# Subsetting data by age groups. Subsetted data will only contain agegroup and text columns
+text_0_9 <- subset_data[subset_data$age_group == '0-9',]
+text_10_19 <- subset_data[subset_data$age_group == '10-19',]
+text_20_29 <- subset_data[subset_data$age_group == '20-29',]
+text_30_39 <- subset_data[subset_data$age_group == '30-39',]
+text_40_49 <- subset_data[subset_data$age_group == '40-49',]
+text_50 <- subset_data[subset_data$age_group == '50 +',]
+
+text_data_0_9 <- text_0_9$text
+text_data_10_19 <- text_10_19$text
+text_data_20_29 <- text_20_29$text
+text_data_30_39 <- text_30_39$text
+text_data_40_49 <- text_40_49$text
+text_data_50 <- text_50$text
+```
+
+
+```{r}
+# Creating a document-term-matrix for age group 10-19
+dtm <- TermDocumentMatrix(text_data_10_19) 
+matrix <- as.matrix(dtm) 
+words <- sort(rowSums(matrix),decreasing=TRUE) 
+text_data_df <- data.frame(word = names(words),freq=words)
+
+# Generate word cloud
+wordcloud2(data=text_data_df, size=1.6, color='random-dark')
+
+
+## make more for each age groups
+```
+
+
+
+
+
+
+
+
+
+
+
