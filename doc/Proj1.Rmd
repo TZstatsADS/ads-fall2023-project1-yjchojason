@@ -1,92 +1,84 @@
 ---
-title: "Project_1"
+title: "Validating Philosophers' Quotes on Joy Through Text Data"
 author: "Jason Cho"
 UNI: "yc4076"
 output: html_document
-date: "2023-09-09"
+date: "2023-09-20"
 ---
 
-```{r setup, include=FALSE}
+```{r setup, include=FALSE, echo=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
-HappyDB is a corpus of 100,000 crowd-sourced happy moments via Amazon's Mechanical Turk. You can read more about it on https://arxiv.org/abs/1801.07746
 
-In this R notebook, we process the raw textual data for our data analysis.
+Dataset : HappyDB is a corpus of 100,000 crowd-sourced happy moments via Amazon's Mechanical Turk. You can read more about it on https://arxiv.org/abs/1801.07746
 
-### Load all the required libraries
+In this data story, I have only used what I needed from HappyDB. I have subsetted the data to conduct data analysis.
 
-```{r load libraries, warning=FALSE, message=FALSE}
+I have cleaned the data by converting all the letters to the lower case, and removing punctuation, numbers, empty words and extra white space. I also added stop words after realizing the unnecessary words from generating the word clouds. 
+
+```{r load libraries, warning=FALSE, message=FALSE, echo=FALSE}
+
+if (!requireNamespace("tidytext", quietly = TRUE)) {
+  install.packages("tidytext")
+}
+
+library(magrittr)
 library(tm)
 library(tidytext)
 library(tidyverse)
 library(DT)
 library(dplyr)
 library(ggplot2)
-library(wordcloud2)
+library(wordcloud)
 ```
 
-### Load the data to be cleaned and processed
 
-```{r read data, warning=FALSE, message=FALSE}
+```{r read data, warning=FALSE, message=FALSE, echo=FALSE}
 urlfile<-'https://raw.githubusercontent.com/rit-public/HappyDB/master/happydb/data/cleaned_hm.csv'
 hm_data <- read_csv(urlfile)
-#head(hm_data, 10)
-dim(hm_data)
 ```
 
-### Step 2 - Preliminary cleaning of text
 
-We clean the text by converting all the letters to the lower case, and removing punctuation, numbers, empty words and extra white space.
-
-```{r text processing in tm}
+```{r text processing in tm, echo=FALSE}
 corpus <- VCorpus(VectorSource(hm_data$cleaned_hm))%>%
   tm_map(content_transformer(tolower))%>%
   tm_map(removePunctuation)%>%
   tm_map(removeNumbers)%>%
-  tm_map(removeWords, character(0))%>%
-  tm_map(stripWhitespace)
+  tm_map(removeWords, stopwords("en"))%>%
+  tm_map(stripWhitespace)%>%
+  tm_map(stemDocument)
+ 
 ```
 
-### Step 3 - Stemming words and converting tm object to tidy object
 
-Stemming reduces a word to its word *stem*. We stem the words here and then convert the "tm" object to a "tidy" object for much faster processing.
-
-```{r stemming}
+```{r stemming, echo=FALSE}
 stemmed <- tm_map(corpus, stemDocument) %>%
   tidy() %>%
   select(text)
 ```
 
-### Step 4 - Creating tidy format of the dictionary to be used for completing stems
 
-We also need a dictionary to look up the words corresponding to the stems.
-
-```{r tidy dictionary}
-dict <- tidy(corpus) %>%
-  select(text) %>%
-  unnest_tokens(dictionary, text)
+```{r tidy dictionary, echo=FALSE}
+dict <- corpus %>%
+  tidy() %>%
+  unnest_tokens(dictionary, text) %>%
+  select(dictionary)
 ```
 
-### Step 5 - Removing stopwords that don't hold any significant information for our data set
 
-We remove stopwords provided by the "tidytext" package and also add custom stopwords in context of our data.
-
-```{r stopwords}
+```{r stopwords, echo=FALSE}
 data("stop_words")
 
 word <- c("happy","ago","yesterday","lot","today","months","month",
                  "happier","happiest","last","week","past","and", 
-                 "but","with","in","on","oh","wow","ah")
+                 "but","with","in","on","oh","wow","ah","day", "happi")
 
 stop_words <- stop_words %>%
   bind_rows(mutate(tibble(word), lexicon = "updated"))
 ```
 
-### Step 6 - Combining stems and dictionary into the same tibble
 
-Here we combine the stems and the dictionary into the same "tidy" object.
-
-```{r, tidy stems with dictionary 2, warning=FALSE}
+```{r, tidy stems with dictionary 2, warning=FALSE, echo=FALSE}
 completed <- stemmed %>%
   mutate(id = row_number()) %>%
   unnest_tokens(stems, text) %>%
@@ -94,11 +86,8 @@ completed <- stemmed %>%
   anti_join(stop_words, by = c("dictionary" = "word"))
 ```
 
-### Step 7 - Stem completion
 
-Lastly, we complete the stems by picking the corresponding word with the highest frequency.
-
-```{r stem completion, warning=FALSE, message=FALSE}
+```{r stem completion, warning=FALSE, message=FALSE, echo=FALSE}
 completed <- completed %>%
   group_by(stems) %>%
   count(dictionary) %>%
@@ -110,25 +99,19 @@ completed <- completed %>%
   select(-stems)
 ```
 
-### Step 8 - Pasting stem completed individual words into their respective happy moments
 
-We want our processed words to resemble the structure of the original happy moments. So we paste the words together to form happy moments.
-
-```{r reverse unnest}
+```{r reverse unnest, echo=FALSE}
 completed <- completed %>%
   group_by(id) %>%
   summarise(text = str_c(word, collapse = " ")) %>%
   ungroup()
 ```
 
-### Step 9 - Keeping a track of the happy moments with their own ID
 
-```{r cleaned hm_data, warning=FALSE, message=FALSE}
+```{r cleaned hm_data, warning=FALSE, message=FALSE, echo=FALSE}
 hm_data <- hm_data %>%
   mutate(id = row_number()) %>%
   inner_join(completed)
-
-head(hm_data)
 ```
 
 ```{r export data,echo=FALSE}
@@ -137,46 +120,38 @@ write_csv(hm_data, "../output/processed_moments.csv")
 
 
 ```{r, message=FALSE,echo=FALSE}
-# Step 1 - Load the processed text data along with demographic information on contributors
-
-# We use the processed data for our analysis and combine it with the demographic information available.
 hm_data <- read_csv("../output/processed_moments.csv")
-
-#head(hm_data)
 ```
 
-I am combining the necessary data I will need for this data story.
-The data that I will be using will be cleaned_hm.csv and demographic.csv.
-I have merged the two, subsetting it for convenience, then limited in age value.
+After exporting the processed data, I have combined the necessary data I will need for this data story. The data that I will be using will be cleaned_hm.csv and demographic.csv.I have merged the two, subsetting it for convenience, then limited in age value.
 
-```{r, message=FALSE,echo=FALSE}
+I discovered that there were ages that could not exist in this world (ex. 233). Therefore, I have filtered out any anomalous age values by setting the maximum age as 116 since 116 is the oldest age recorded to be alive on Earth.
 
+I also found out some people with the age of 3 aligned with sentences such as "last night I went to dance bar with my lover." I am setting the minimum range as 5 since it is the earliest age a child can write.
+
+```{r, message=FALSE,echo=FALSE, echo=FALSE}
 urlfile<-'https://raw.githubusercontent.com/rit-public/HappyDB/master/happydb/data/demographic.csv'
 demo_data <- read_csv(urlfile)
 
-# I will merge hm_data & demo_data and name it as 'combined_data' + remove rows with NA value
+# remove rows with NA value
 combined_data <- merge(hm_data,demo_data, by="wid", all.x=TRUE, all.y=TRUE)
 combined_data <- na.omit(combined_data)
 
 # Subset the desired columns and name it as 'subset_data'
 subset_data <- combined_data[, c("wid", "age", "gender", "original_hm", "text", "modified", "ground_truth_category", "predicted_category", "num_sentence")]
 
-# I discovered that there were rows with the age recorded as 233. I am filtering out any anomalous age values. I am setting the maximum range as 116 since the oldest known living person on Earth is 116 years old.
-# I also found out some people with the age of 3 aligned with sentences such as "last night I went to dance bar with my lover." I am setting the minimum range as 5 since it is the earliest age a child can write.
 subset_data <- subset(subset_data, age >= 5 & age <= 116)
-
 ```
 
-```{r tidy stems with dictionary}
-head(subset_data)
-```
+### "Happiness depends upon ourselves" - Aristotle
 
-Figure 1
+This quote from Aristotle encapsulates the idea that our well-being is largely within our control. It implies that external circumstances, while they can influence our well-being, don't define it. Instead, it's our choices, virtues, and internal state that play a dominant role in determining our happiness. 
 
-First, I am trying to see the frequencies of moment by counting the number of moments reported across different ages.
-This line graph shows the overall amount of answers reported by different ages. 
+This should tell that everyone has a different source of happiness. From the given data set, I will be investigating the various source of happiness across different age groups to check the validity of Aristotle's quote. I am hoping to see some meaningful trend in them that I could link with other quotes from other philosophers.
 
-```{r}
+To embark on this exploration, understanding the distribution of our data is crucial. This will give us an insight into which age groups are most vocal about their moments of happiness, and perhaps, indirectly, indicate the ages where reflections on joy are most profound or sought after.
+
+```{r, echo=FALSE}
 
 # Count the number of responses for each age
 age_counts <- table(subset_data$age)
@@ -194,24 +169,24 @@ ggplot(age_df, aes(x=Age, y=Count)) +
        x='Age',
        y='Number of Responses') +
   theme(axis.text.x = element_text(angle=45, hjust=1))
-
-# -> The line graph clearly shows the number of reported moments are bigger from the younger group of people compared to the older groups. Since this does not tell much about the reason behind the difference in age, I will be finding details by analyzing the categories of the responses.
 ```
 
-Figure 2
+The above line graph, "Number of Resonses Across Ages", there's a noticeable surge in responses from individuals between the ages of 10s and 30s. This peak in responses in such ages may suggest a heighted awareness about sources of happiness during these formative years. 
 
-From Figure 1, although I could generally look at the difference in the number of responses according to ages, it is impossible to check which category each responses come from.
-To delve into the specific categories of the answers deeper and closely compare between age groups, I am dividing the age group into five different groups.
-Ages under 14 are named as "children," 15 to 24 as "youth," 25 to 44 as "younger adults," "45 to 65" as "older adults," and "seniors" from 65. The grouping is inspired from the Canadian government's departmental standard of life cycle groupings. (https://www.statcan.gc.ca/en/concepts/definitions/age2) I have modified the Adults range, which was supposed to be 25-65, as younger and older adults since it was too big as a single group.
+While Aristotle suggested that happiness is a matter of individual agency, it's intriguing to see such a pronounced trend in younger ages. Could it be that younger individuals are more exploratory in their quest to define their happiness? Or perhap it could be the modern age—with its digital connectivity and platforms—has given the youth more avenues to express and reflect upon their joy.
 
-```{r}
+To further delve into this, I am grouping the ages by 10s, investigating the categories of the responses to track the trend. Since the data did not contain any of those between 0-9, all the visulas and analysis do not show information about that group.
+
+Following data shows a fascinating pattern. 
+
+```{r, echo=FALSE}
 # Add a new column for age groups
 subset_data$age_group <- cut(subset_data$age, 
-                               breaks = c(0, 14, 24, 44, 65, Inf), 
-                               labels = c("children", "youth", "younger adults", "older adults", "seniors"), 
+                               breaks = c(0, 10, 20, 30, 40, 50, 60, Inf), 
+                               labels = c("0-9", "10-19", "20-29", "30-39", "40-49", "50-59", "60 +"), 
                                right = TRUE, include.lowest = TRUE)
 
-# Since the minimum age of the data is 18, we will not be getting any data for 'children' group
+# Since the minimum age of the data is 18, we will not be getting any data for '0-9' group
 min(unique(subset_data$age))
 
 # Plotting the distribution of moments across age groups
@@ -224,60 +199,26 @@ ggplot(subset_data, aes(x=age_group, fill=ground_truth_category)) +
   theme(axis.text.x = element_text(angle=45, hjust=1),
         legend.position='top',
         legend.title=element_blank())
-
-# -> Following bar plot specifies that the most responses were attained from younger adults. Surprisingly, only the youths are most frequently feeling happiness from their achievements, while the other groups are most influenced by affection.
 ```
 
-```{r}
-# Add a new column for age groups
-subset_data$age_group <- cut(subset_data$age, 
-                               breaks = c(0, 10, 20, 30, 40, 50, Inf), 
-                               labels = c("0-9", "10-19", "20-29", "30-39", "40-49", "50 +"), 
-                               right = TRUE, include.lowest = TRUE)
+It is observed that the 20-29 age group is the most vocal, representing the highest number of responses, it's the younger 10-19 age group that presents a unique perspective on happiness. Unlike their older age groups, this group derives their most pronounced moments of happiness from their achievements. This distinction is especially striking when juxtaposed with other age groups, where affection consistently emerges as the predominant source of joy.
 
-# Since the minimum age of the data is 18, we will not be getting any data for 'children' group
-min(unique(subset_data$age))
-
-# Plotting the distribution of moments across age groups
-ggplot(subset_data, aes(x=age_group, fill=ground_truth_category)) +
-  geom_bar(position='dodge') +
-  theme_minimal() +
-  labs(title='Distribution of Moments Across Age Groups',
-       x='Age Group',
-       y='Count') +
-  theme(axis.text.x = element_text(angle=45, hjust=1),
-        legend.position='top',
-        legend.title=element_blank())
-
-# -> Following bar plot specifies that the most responses were attained from younger adults. Surprisingly, only the youths are most frequently feeling happiness from their achievements, while the other groups are most influenced by affection.
-```
-
-Figure 3
-
-To see the trend of the proportions of each categories, I am creating an extra bar plot.
-
-```{r}
-
+```{r, echo=FALSE}
 # Plotting the distribution of moments across age groups as percentages
 ggplot(subset_data, aes(x=age_group, fill=ground_truth_category)) +
   geom_bar(position='fill') + 
   scale_y_continuous(labels=scales::percent_format(scale=1)) +
   theme_minimal() +
-  labs(title='Percentage Distribution of Moments Across Age Groups',
+  labs(title='Percentage Distribution of Moments Across Age Groups in Bar Plot',
        x='Age Group',
        y='Percentage') +
   theme(axis.text.x = element_text(angle=45, hjust=1),
         legend.position='top',
         legend.title=element_blank())
-
-# -> This bar plot shows the change of trend regarding each categories. It is noticeable that proportion of affection tends to increase when deciding their happiness, while bonding gradually decreases as the age groups get older. This may explain that aspects like active lifestyles, social interactions, and new experiences decide younger age groups' happiness, while older age groups' happiness is affected by profound values such as affection.
-
 ```
 
 
-```{r}
-## 위에 그래프 라인으로 딴거
-
+```{r, echo=FALSE}
 # Calculate the percentages for each category within each age group
 subset_data_percent <- subset_data %>%
   group_by(age_group, ground_truth_category) %>%
@@ -289,19 +230,26 @@ ggplot(subset_data_percent, aes(x=age_group, y=percentage, color=ground_truth_ca
   geom_line(size=1) + 
   scale_y_continuous(labels=scales::percent_format(scale=1)) +
   theme_minimal() +
-  labs(title='Percentage Distribution of Moments Across Age Groups',
+  labs(title='Percentage Distribution of Moments Across Age Groups in Line Graph',
        x='Age Group',
        y='Percentage') +
   theme(axis.text.x = element_text(angle=45, hjust=1),
         legend.position='top',
         legend.title=element_blank())
-
 ```
 
+The above bar plot and line graph help to understand the trend of each moments that the responses were classified. Across age groups, a decline in the weight placed on achievement and bonding is evident as age increases. In contrast, the value attached to affection and nature tend to be increased as the age group got older. However, moments like exercise retain a steady importance throughout every age groups.
+
+This leads to another quote from Friedrich Nietzche. 
+
+### "He who has a why to live can bear almost any how" - Friedrich Nietzche
+
+The quote delivers an idea that individuals with a deeper purpose and meaning in their lives are better equipped to endure challenges, hardships, and even more. Indeed, as individuals journey through life, the reason behind-the deeper meaning on the purpose-upgrades. This could correspondingly lead to a question if the responses of happy moments by older aged groups to be somewhat more profound.
+
+From the analysis above, it could be said that the responses from the older age groups like 60+ could be considered as being more profound. Drawing from the fact that the rise of moments such as 'affection' and 'nature' may mean the responses to be more profound compared to the younger aged groups with the emphasis on 'achievement' and 'bonding'. 
 
 ```{r, echo=FALSE}
 # Calculating the length of the response
-
 subset_data$length_response <- nchar(as.character(subset_data$original_hm))
 
 # Compute the average length of responses for each age group
@@ -317,11 +265,9 @@ ggplot(avg_length_by_age, aes(x=age_group, y=avg_length)) +
        x='Age Group',
        y='Average Length') +
   theme(axis.text.x = element_text(angle=45, hjust=1))
-
-
 ```
 
-```{r}
+```{r, echo=FALSE}
 
 # Scatterplot of the length of responses across all ages
 ggplot(subset_data, aes(x=age, y=length_response)) +
@@ -331,13 +277,22 @@ ggplot(subset_data, aes(x=age, y=length_response)) +
        x='Age',
        y='Length of Response') +
   theme(axis.text.x = element_text(angle=45, hjust=1))
-
-```
-```{r}
-
 ```
 
-```{r}
+To further explore in this matter, I will be bringing up another quote from Søren Kierkegaard.
+
+### "Life can oly be understood backward; but it must be lived forwards" - Søren Kierkegaard
+
+Reflecting on the data of happy moment across different age groups, this quote encapsulates how people accumulate a rich tapestry of experiences to look back upon as they age. Also, it gives them deeper insights into the nature of life. To check this manner in real data, I focused on the length of the responses.
+
+Intuitively, I expected the length to increase linearly with age, as individuals garner more life experiences to draw from. However, contrary to the assumption, the data conveys a nuanced result. Although there is a slight increase in response length, peaking at the age group of 50-59, it is a mere increase, and the length contracts for those above 60. The expected continuously increase doesn't fully manifest in the oldest age group. 
+
+While the data suggests a correlation between age and the length of articulation, it doesn't conclusively affirm depth or profundity. Longer responses might indicate more contemplation, but it's worth noting that profundity isn't solely dependent on word count. A brief, succinct reflection can be as profound as an extensive one.
+
+Returning to Kierkegaard's quotes, although the length of responses may add another layer to this exploration, it may not be sufficient enough to reflect the difference in depth of responses across different age groups. It is showing that the tapestry of human experience is rich, complex, and hard to be deciphered through a singular lens.
+
+From here, to check upon the moments values, I have created word cloud for each of the age group, and again skipping age group 0-9 since there are no values in the data.
+```{r, echo=FALSE}
 
 # Wordcloud for each age group
 
@@ -347,38 +302,153 @@ text_10_19 <- subset_data[subset_data$age_group == '10-19',]
 text_20_29 <- subset_data[subset_data$age_group == '20-29',]
 text_30_39 <- subset_data[subset_data$age_group == '30-39',]
 text_40_49 <- subset_data[subset_data$age_group == '40-49',]
-text_50 <- subset_data[subset_data$age_group == '50 +',]
+text_50_59 <- subset_data[subset_data$age_group == '50-59',]
+text_60 <- subset_data[subset_data$age_group == '60 +',]
 
 text_data_0_9 <- text_0_9$text
 text_data_10_19 <- text_10_19$text
 text_data_20_29 <- text_20_29$text
 text_data_30_39 <- text_30_39$text
 text_data_40_49 <- text_40_49$text
-text_data_50 <- text_50$text
+text_data_50_59 <- text_50_59$text
+text_data_60_69 <- text_60$text
+
+```
+
+```{r, echo=FALSE}
+# Wordcloud for age group 10-19 
+# Skipped group 0-9 since there were no values for that age group
+
+bag_of_words_19 <-  text_10_19 %>%
+  unnest_tokens(word, text)
+
+word_count_19 <- bag_of_words_19 %>%
+  count(word, sort = TRUE)
+
+wordcloud(word_count_19$word,word_count_19$n ,
+          scale=c(3,0.1),
+          max.words=100,
+          min.freq=1,
+          random.order=FALSE,
+          rot.per=0.3,
+          use.r.layout=T,
+          random.color=FALSE,
+          colors=brewer.pal(9,"Oranges"))
+title(main = "Word Cloud for Age Group 10-19")
+```
+
+```{r, echo=FALSE}
+# Wordcloud for age group 20-29 
+bag_of_words_29 <-  text_20_29 %>%
+  unnest_tokens(word, text)
+
+word_count_29 <- bag_of_words_29 %>%
+  count(word, sort = TRUE)
+
+wordcloud(word_count_29$word,word_count_29$n ,
+          scale=c(3,0.1),
+          max.words=100,
+          min.freq=1,
+          random.order=FALSE,
+          rot.per=0.3,
+          use.r.layout=T,
+          random.color=FALSE,
+          colors=brewer.pal(9,"Greens"))
+title(main = "Word Cloud for Age Group 20-29")
+```
+```{r, echo=FALSE}
+# Wordcloud for age group 30-39 
+bag_of_words_39 <-  text_30_39 %>%
+  unnest_tokens(word, text)
+
+word_count_39 <- bag_of_words_39 %>%
+  count(word, sort = TRUE)
+
+wordcloud(word_count_39$word,word_count_39$n ,
+          scale=c(3,0.1),
+          max.words=100,
+          min.freq=1,
+          random.order=FALSE,
+          rot.per=0.3,
+          use.r.layout=T,
+          random.color=FALSE,
+          colors=brewer.pal(9,"Blues"))
+title(main = "Word Cloud for Age Group 30-39")
+```
+```{r, echo=FALSE}
+# Wordcloud for age group 40-49 
+bag_of_words_49 <-  text_40_49 %>%
+  unnest_tokens(word, text)
+
+word_count_49 <- bag_of_words_49 %>%
+  count(word, sort = TRUE)
+
+wordcloud(word_count_49$word,word_count_49$n ,
+          scale=c(3,0.1),
+          max.words=100,
+          min.freq=1,
+          random.order=FALSE,
+          rot.per=0.3,
+          use.r.layout=T,
+          random.color=FALSE,
+          colors=brewer.pal(9,"RdPu"))
+title(main = "Word Cloud for Age Group 40-49")
 ```
 
 
-```{r}
-# Creating a document-term-matrix for age group 10-19
-dtm <- TermDocumentMatrix(text_data_10_19) 
-matrix <- as.matrix(dtm) 
-words <- sort(rowSums(matrix),decreasing=TRUE) 
-text_data_df <- data.frame(word = names(words),freq=words)
+```{r, echo=FALSE}
+# Wordcloud for age group 50-59 
+bag_of_words_59 <-  text_50_59 %>%
+  unnest_tokens(word, text)
 
-# Generate word cloud
-wordcloud2(data=text_data_df, size=1.6, color='random-dark')
+word_count_59 <- bag_of_words_59 %>%
+  count(word, sort = TRUE)
 
-
-## make more for each age groups
+wordcloud(word_count_59$word,word_count_59$n ,
+          scale=c(3,0.1),
+          max.words=100,
+          min.freq=1,
+          random.order=FALSE,
+          rot.per=0.3,
+          use.r.layout=T,
+          random.color=FALSE,
+          colors=brewer.pal(9,"GnBu"))
+title(main = "Word Cloud for Age Group 50-59")
 ```
 
+```{r, echo=FALSE}
+# Wordcloud for age group 60+ 
+bag_of_words_60 <-  text_60 %>%
+  unnest_tokens(word, text)
 
+word_count_60 <- bag_of_words_60 %>%
+  count(word, sort = TRUE)
 
+wordcloud(word_count_60$word,word_count_60$n ,
+          scale=c(3,0.1),
+          max.words=100,
+          min.freq=1,
+          random.order=FALSE,
+          rot.per=0.3,
+          use.r.layout=T,
+          random.color=FALSE,
+          colors=brewer.pal(9,"Purples"))
+title(main = "Word Cloud for Age Group 60+")
+```
 
+Drawing upon each of the word clouds, it is possible to perceive words like 'friend' and 'time' being significantly noticeable in all age groups. From age group 30-39, words like 'daughter' and 'son' starts to arise, eventually left with a vibrant and big section for the older aged groups. 
 
+Despite their similarity in some words, the difference in the prominence of the words clearly show how it could change proportion-wise, just like the results I got beforehand. Unlike 10-19 groups, the word cloud of 60+ is not only larger in size, but also the composition is much more fruitful. This data should help examining the quote from Friedrich Nietzche, since we are able to visualize the difference in amount considered when responding their happy moments.
 
+### Conclusion
 
+#### "Happiness depends upon ourselves." - Aristotle
+Through exploring HappyDB, happiness manifests in diverse ways across different age groups. Drawing from both the analysis of moments and word clouds, as individuals transition through life, their sources of happiness evolve—from the tangible achievements and bonds of youth to the intangible affections and appreciation of nature in older age. Overall, Aristotle's perspective that the power to define our happiness is valid for the happiness is influenced by our life's unique journey.
 
+#### "He who has a why to live can bear almost any how" - Friedrich Nietzche
+Suggesting that purpose underpins endurance, as people age, their happiness increasing draws from deeper meanings like affection and nature. As how the data shows, such shifts may well reflect the profound "whys" that come to the forefront as individuals navigate through life's myriad "hows."
 
+#### "Life can only be understood backward; but it must be lived forwards," - Søren Kierkegaard
+Younger individuals find joy in the present, in their achievements and bonds, while older ones, with a tapestry of experiences to look back upon, derive happiness from moments of affection and nature's embrace. The nuanced results on response lengths highlight that understanding life's journey isn't solely about the breadth of our words, but the depth of our feelings.
 
 
