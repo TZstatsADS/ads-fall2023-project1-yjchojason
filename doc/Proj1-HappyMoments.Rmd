@@ -6,6 +6,8 @@ output: html_document
 date: "2023-09-20"
 ---
 
+![ ](../figs/banner.jpeg)
+
 ```{r setup, include=FALSE, echo=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
@@ -22,6 +24,8 @@ if (!requireNamespace("tidytext", quietly = TRUE)) {
   install.packages("tidytext")
 }
 
+install.packages('plyr', repos = "http://cran.us.r-project.org")
+
 library(magrittr)
 library(tm)
 library(tidytext)
@@ -30,16 +34,20 @@ library(DT)
 library(dplyr)
 library(ggplot2)
 library(wordcloud)
+library(readr)
 ```
 
 
 ```{r read data, warning=FALSE, message=FALSE, echo=FALSE}
+
+getOption("repos")
+
 urlfile<-'https://raw.githubusercontent.com/rit-public/HappyDB/master/happydb/data/cleaned_hm.csv'
 hm_data <- read_csv(urlfile)
+
 ```
 
-
-```{r text processing in tm, echo=FALSE}
+```{r text processing in tm, echo=FALSE, warning=FALSE, message=FALSE}
 corpus <- VCorpus(VectorSource(hm_data$cleaned_hm))%>%
   tm_map(content_transformer(tolower))%>%
   tm_map(removePunctuation)%>%
@@ -47,18 +55,17 @@ corpus <- VCorpus(VectorSource(hm_data$cleaned_hm))%>%
   tm_map(removeWords, stopwords("en"))%>%
   tm_map(stripWhitespace)%>%
   tm_map(stemDocument)
- 
 ```
 
 
-```{r stemming, echo=FALSE}
+```{r stemming, echo=FALSE, warning=FALSE, message=FALSE}
 stemmed <- tm_map(corpus, stemDocument) %>%
   tidy() %>%
   select(text)
 ```
 
 
-```{r tidy dictionary, echo=FALSE}
+```{r tidy dictionary, echo=FALSE, warning=FALSE, message=FALSE}
 dict <- corpus %>%
   tidy() %>%
   unnest_tokens(dictionary, text) %>%
@@ -129,7 +136,7 @@ I discovered that there were ages that could not exist in this world (ex. 233). 
 
 I also found out some people with the age of 3 aligned with sentences such as "last night I went to dance bar with my lover." I am setting the minimum range as 5 since it is the earliest age a child can write.
 
-```{r, message=FALSE,echo=FALSE, echo=FALSE}
+```{r, message=FALSE,echo=FALSE, warning=FALSE}
 urlfile<-'https://raw.githubusercontent.com/rit-public/HappyDB/master/happydb/data/demographic.csv'
 demo_data <- read_csv(urlfile)
 
@@ -142,6 +149,8 @@ subset_data <- combined_data[, c("wid", "age", "gender", "original_hm", "text", 
 
 subset_data <- subset(subset_data, age >= 5 & age <= 116)
 ```
+
+Happiness is an emotion so universally sought after, yet so uniquely experienced. From the adventurous youth's achievements to the tranquil moments of an elder's reflection. Philosophers have often contemplated the intricacies of happiness, attributing it to internal virtues, external experiences, or deeper existential meanings. According to their insights, they have left quotes related to happiness and age. I want to deep dive into 3 different quotes by renowned philosophers, to check if real-life data echo the profound insights of the great minds. 
 
 ### "Happiness depends upon ourselves" - Aristotle
 
@@ -187,7 +196,7 @@ subset_data$age_group <- cut(subset_data$age,
                                right = TRUE, include.lowest = TRUE)
 
 # Since the minimum age of the data is 18, we will not be getting any data for '0-9' group
-min(unique(subset_data$age))
+# min(unique(subset_data$age))
 
 # Plotting the distribution of moments across age groups
 ggplot(subset_data, aes(x=age_group, fill=ground_truth_category)) +
@@ -218,7 +227,7 @@ ggplot(subset_data, aes(x=age_group, fill=ground_truth_category)) +
 ```
 
 
-```{r, echo=FALSE}
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
 # Calculate the percentages for each category within each age group
 subset_data_percent <- subset_data %>%
   group_by(age_group, ground_truth_category) %>%
